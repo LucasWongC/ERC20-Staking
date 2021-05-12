@@ -1,11 +1,5 @@
 import React, { Component } from "react";
 
-import StakingContract from "./contracts/Staking.json";
-import getWeb3 from "./utils/getWeb3";
-import TutorialToken from "./contracts/TutorialToken.json";
-
-import Button from "@material-ui/core/Button";
-import TextField from "@material-ui/core/TextField";
 import Typography from "@material-ui/core/Typography";
 import Grid from "@material-ui/core/Grid";
 import Paper from "@material-ui/core/Paper";
