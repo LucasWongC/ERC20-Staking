@@ -6,35 +6,33 @@ import "openzeppelin-solidity/contracts/crowdsale/emission/AllowanceCrowdsale.so
 import "openzeppelin-solidity/contracts/ownership/Ownable.sol";
 import "openzeppelin-solidity/contracts/token/ERC20/ERC20.sol";
 
+contract BITNCrowdsaleAllowance is Ownable, AllowanceCrowdsale {
+    uint256 private customRate;
 
-contract BITNCrowdsaleAllowance is Ownable, AllowanceCrowdsale{
+    event RateUpdated(uint256 newRate);
 
-    uint private customRate;
-
-
-
-    event RateUpdated(uint newRate);
-
-    
-    constructor(uint _initialRate, address payable _destinationWallet, ERC20 _token)
-     public
-     Crowdsale(_initialRate, _destinationWallet, _token)
-    {
+    constructor(
+        uint256 _initialRate,
+        address payable _destinationWallet,
+        ERC20 _token
+    ) public Crowdsale(_initialRate, _destinationWallet, _token) {
         customRate = 1;
-
     }
 
-    function setRate(uint _newRate) public onlyOwner {
+    function setRate(uint256 _newRate) public onlyOwner {
         customRate = _newRate;
-        emit RateUpdated(_newRate);     //Used for realizing a graph, cheaper than SSTORE
+        emit RateUpdated(_newRate); //Used for realizing a graph, cheaper than SSTORE
     }
 
-    function _getTokenAmount(uint256 weiAmount) internal view returns (uint256) {
+    function _getTokenAmount(uint256 weiAmount)
+        internal
+        view
+        returns (uint256)
+    {
         return weiAmount.mul(customRate);
     }
 
-    function getCurrentRate() external view returns (uint){
+    function getCurrentRate() external view returns (uint256) {
         return customRate;
     }
-
 }

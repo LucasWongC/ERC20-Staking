@@ -7,144 +7,110 @@ import "openzeppelin-solidity/contracts/utils/Address.sol";
 
 import "openzeppelin-solidity/contracts/utils/ReentrancyGuard.sol";
 
-
 contract Staking is Ownable, ReentrancyGuard {
-    using SafeMath for uint;
+    using SafeMath for uint256;
     using SafeMath for uint256;
     using SafeMath for uint8;
 
-
-
-    struct Stake{
-        uint deposit_amount;        //Deposited Amount
-        uint stake_creation_time;   //The time when the stake was created
-        bool returned;              //Specifies if the funds were withdrawed
-        uint alreadyWithdrawedAmount;   //TODO Correct Lint
+    struct Stake {
+        uint256 deposit_amount; //Deposited Amount
+        uint256 stake_creation_time; //The time when the stake was created
+        bool returned; //Specifies if the funds were withdrawed
+        uint256 alreadyWithdrawedAmount; //TODO Correct Lint
     }
 
-
-    struct Account{
+    struct Account {
         address referral;
-        uint referralAlreadyWithdrawed;
+        uint256 referralAlreadyWithdrawed;
     }
-
 
     //---------------------------------------------------------------------
     //-------------------------- EVENTS -----------------------------------
     //---------------------------------------------------------------------
 
+    /**
+     *   @dev Emitted when the pot value changes
+     */
+    event PotUpdated(uint256 newPot);
 
     /**
-    *   @dev Emitted when the pot value changes
+     *   @dev Emitted when a customer tries to withdraw an amount
+     *       of token greater than the one in the pot
      */
-    event PotUpdated(
-        uint newPot
-    );
-
+    event PotExhausted();
 
     /**
-    *   @dev Emitted when a customer tries to withdraw an amount
-    *       of token greater than the one in the pot
+     *   @dev Emitted when a new stake is issued
      */
-    event PotExhausted(
-
-    );
-
+    event NewStake(uint256 stakeAmount, address from);
 
     /**
-    *   @dev Emitted when a new stake is issued
+     *   @dev Emitted when a new stake is withdrawed
      */
-    event NewStake(
-        uint stakeAmount,
-        address from
-    );
+    event StakeWithdraw(uint256 stakeID, uint256 amount);
 
     /**
-    *   @dev Emitted when a new stake is withdrawed
+     *   @dev Emitted when a referral reward is sent
      */
-    event StakeWithdraw(
-        uint stakeID,
-        uint amount
-    );
+    event referralRewardSent(address account, uint256 reward);
+
+    event rewardWithdrawed(address account);
 
     /**
-    *   @dev Emitted when a referral reward is sent
+     *   @dev Emitted when the machine is stopped (500.000 tokens)
      */
-    event referralRewardSent(
-        address account,
-        uint reward
-    );
-
-    event rewardWithdrawed(
-        address account
-    );
-
+    event machineStopped();
 
     /**
-    *   @dev Emitted when the machine is stopped (500.000 tokens)
+     *   @dev Emitted when the subscription is stopped (400.000 tokens)
      */
-    event machineStopped(
-    );
-
-    /**
-    *   @dev Emitted when the subscription is stopped (400.000 tokens)
-     */
-    event subscriptionStopped(
-    );
-
-
+    event subscriptionStopped();
 
     //--------------------------------------------------------------------
     //-------------------------- GLOBALS -----------------------------------
     //--------------------------------------------------------------------
 
-    mapping (address => Stake[]) private stake; /// @dev Map that contains account's stakes
+    mapping(address => Stake[]) private stake; /// @dev Map that contains account's stakes
 
     address private tokenAddress;
 
     ERC20 private ERC20Interface;
 
-    uint private pot;    //The pot where token are taken
+    uint256 private pot; //The pot where token are taken
 
-    uint256 private amount_supplied;    //Store the remaining token to be supplied
+    uint256 private amount_supplied; //Store the remaining token to be supplied
 
-    uint private pauseTime;     //Time when the machine paused
-    uint private stopTime;      //Time when the machine stopped
-
-
-
+    uint256 private pauseTime; //Time when the machine paused
+    uint256 private stopTime; //Time when the machine stopped
 
     // @dev Mapping the referrals
-    mapping (address => address[]) private referral;    //Store account that used the referral
+    mapping(address => address[]) private referral; //Store account that used the referral
 
-    mapping (address => Account) private account_referral;  //Store the setted account referral
+    mapping(address => Account) private account_referral; //Store the setted account referral
 
-
-    address[] private activeAccounts;   //Store both staker and referer address
-
+    address[] private activeAccounts; //Store both staker and referer address
 
     uint256 private constant _DECIMALS = 18;
 
-    uint256 private constant _INTEREST_PERIOD = 1 days;    //One Month
-    uint256 private constant _INTEREST_VALUE = 333;    //0.333% per day
+    uint256 private constant _INTEREST_PERIOD = 1 days; //One Month
+    uint256 private constant _INTEREST_VALUE = 333; //0.333% per day
 
-    uint256 private constant _PENALTY_VALUE = 20;    //20% of the total stake
-
-
+    uint256 private constant _PENALTY_VALUE = 20; //20% of the total stake
 
     uint256 private constant _MIN_STAKE_AMOUNT = 100 * (10**_DECIMALS);
 
     uint256 private constant _MAX_STAKE_AMOUNT = 100000 * (10**_DECIMALS);
 
-    uint private constant _REFERALL_REWARD = 333; //0.333% per day
+    uint256 private constant _REFERALL_REWARD = 333; //0.333% per day
 
-    uint256 private constant _MAX_TOKEN_SUPPLY_LIMIT =     50000000 * (10**_DECIMALS);
-    uint256 private constant _MIDTERM_TOKEN_SUPPLY_LIMIT = 40000000 * (10**_DECIMALS);
-
+    uint256 private constant _MAX_TOKEN_SUPPLY_LIMIT =
+        50000000 * (10**_DECIMALS);
+    uint256 private constant _MIDTERM_TOKEN_SUPPLY_LIMIT =
+        40000000 * (10**_DECIMALS);
 
     constructor() public {
         pot = 0;
-        amount_supplied = _MAX_TOKEN_SUPPLY_LIMIT;    //The total amount of token released
+        amount_supplied = _MAX_TOKEN_SUPPLY_LIMIT; //The total amount of token released
         tokenAddress = address(0);
     }
 
@@ -152,21 +118,22 @@ contract Staking is Ownable, ReentrancyGuard {
     //-------------------------- TOKEN ADDRESS -----------------------------------
     //--------------------------------------------------------------------
 
-
     function setTokenAddress(address _tokenAddress) external onlyOwner {
-        require(Address.isContract(_tokenAddress), "The address does not point to a contract");
+        require(
+            Address.isContract(_tokenAddress),
+            "The address does not point to a contract"
+        );
 
         tokenAddress = _tokenAddress;
         ERC20Interface = ERC20(tokenAddress);
     }
 
     function isTokenSet() external view returns (bool) {
-        if(tokenAddress == address(0))
-            return false;
+        if (tokenAddress == address(0)) return false;
         return true;
     }
 
-    function getTokenAddress() external view returns (address){
+    function getTokenAddress() external view returns (address) {
         return tokenAddress;
     }
 
@@ -174,89 +141,109 @@ contract Staking is Ownable, ReentrancyGuard {
     //-------------------------- ONLY OWNER -----------------------------------
     //--------------------------------------------------------------------
 
-
-    function depositPot(uint _amount) external onlyOwner nonReentrant {
-        require(tokenAddress != address(0), "The Token Contract is not specified");
+    function depositPot(uint256 _amount) external onlyOwner nonReentrant {
+        require(
+            tokenAddress != address(0),
+            "The Token Contract is not specified"
+        );
 
         pot = pot.add(_amount);
 
-        if(ERC20Interface.transferFrom(msg.sender, address(this), _amount)){
+        if (ERC20Interface.transferFrom(msg.sender, address(this), _amount)) {
             //Emit the event to update the UI
             emit PotUpdated(pot);
-        }else{
+        } else {
             revert("Unable to tranfer funds");
         }
-
     }
 
-
-    function returnPot(uint _amount) external onlyOwner nonReentrant{
-        require(tokenAddress != address(0), "The Token Contract is not specified");
+    function returnPot(uint256 _amount) external onlyOwner nonReentrant {
+        require(
+            tokenAddress != address(0),
+            "The Token Contract is not specified"
+        );
         require(pot.sub(_amount) >= 0, "Not enough token");
 
         pot = pot.sub(_amount);
 
-        if(ERC20Interface.transfer(msg.sender, _amount)){
+        if (ERC20Interface.transfer(msg.sender, _amount)) {
             //Emit the event to update the UI
             emit PotUpdated(pot);
-        }else{
+        } else {
             revert("Unable to tranfer funds");
         }
-
     }
 
+    function finalShutdown() external onlyOwner nonReentrant {
+        uint256 machineAmount = getMachineBalance();
 
-    function finalShutdown() external onlyOwner nonReentrant{
-
-        uint machineAmount = getMachineBalance();
-
-        if(!ERC20Interface.transfer(owner(), machineAmount)){
+        if (!ERC20Interface.transfer(owner(), machineAmount)) {
             revert("Unable to transfer funds");
         }
         //Goodbye
     }
 
-    function getAllAccount() external onlyOwner view returns (address[] memory){
+    function getAllAccount()
+        external
+        view
+        onlyOwner
+        returns (address[] memory)
+    {
         return activeAccounts;
     }
 
     /**
-    *   @dev Check if the pot has enough balance to satisfy the potential withdraw
+     *   @dev Check if the pot has enough balance to satisfy the potential withdraw
      */
-    function getPotentialWithdrawAmount() external onlyOwner view returns (uint){
-        uint accountNumber = activeAccounts.length;
+    function getPotentialWithdrawAmount()
+        external
+        view
+        onlyOwner
+        returns (uint256)
+    {
+        uint256 accountNumber = activeAccounts.length;
 
-        uint potentialAmount = 0;
+        uint256 potentialAmount = 0;
 
-        for(uint i = 0; i<accountNumber; i++){
-
+        for (uint256 i = 0; i < accountNumber; i++) {
             address currentAccount = activeAccounts[i];
 
-            potentialAmount = potentialAmount.add(calculateTotalRewardReferral(currentAccount));    //Referral
+            potentialAmount = potentialAmount.add(
+                calculateTotalRewardReferral(currentAccount)
+            ); //Referral
 
-            potentialAmount = potentialAmount.add(calculateTotalRewardToWithdraw(currentAccount));  //Normal Reward
+            potentialAmount = potentialAmount.add(
+                calculateTotalRewardToWithdraw(currentAccount)
+            ); //Normal Reward
         }
 
         return potentialAmount;
     }
-
 
     //--------------------------------------------------------------------
     //-------------------------- CLIENTS -----------------------------------
     //--------------------------------------------------------------------
 
     /**
-    *   @dev Stake token verifying all the contraint
-    *   @notice Stake tokens
-    *   @param _amount Amoun to stake
-    *   @param _referralAddress Address of the referer; 0x000...1 if no referer is provided
+     *   @dev Stake token verifying all the contraint
+     *   @notice Stake tokens
+     *   @param _amount Amoun to stake
+     *   @param _referralAddress Address of the referer; 0x000...1 if no referer is provided
      */
-    function stakeToken(uint _amount, address _referralAddress) external nonReentrant {
-
+    function stakeToken(uint256 _amount, address _referralAddress)
+        external
+        nonReentrant
+    {
         require(tokenAddress != address(0), "No contract set");
 
-        require(_amount >= _MIN_STAKE_AMOUNT, "You must stake at least 100 tokens");
-        require(_amount <= _MAX_STAKE_AMOUNT, "You must stake at maximum 100000 tokens");
+        require(
+            _amount >= _MIN_STAKE_AMOUNT,
+            "You must stake at least 100 tokens"
+        );
+        require(
+            _amount <= _MAX_STAKE_AMOUNT,
+            "You must stake at maximum 100000 tokens"
+        );
 
         require(!isSubscriptionEnded(), "Subscription ended");
 
@@ -270,132 +257,142 @@ contract Staking is Ownable, ReentrancyGuard {
 
         stake[staker].push(newStake);
 
-        if(!hasReferral()){
+        if (!hasReferral()) {
             setReferral(_referralAddress);
         }
 
         activeAccounts.push(msg.sender);
 
-        if(ERC20Interface.transferFrom(msg.sender, address(this), _amount)){
+        if (ERC20Interface.transferFrom(msg.sender, address(this), _amount)) {
             emit NewStake(_amount, _referralAddress);
-        }else{
+        } else {
             revert("Unable to transfer funds");
         }
-
-
     }
 
     /**
-    *   @dev Return the staked tokens, requiring that the stake was
-    *        not alreay withdrawed
-    *   @notice Return staked token
-    *   @param _stakeID The ID of the stake to be returned
+     *   @dev Return the staked tokens, requiring that the stake was
+     *        not alreay withdrawed
+     *   @notice Return staked token
+     *   @param _stakeID The ID of the stake to be returned
      */
-    function returnTokens(uint _stakeID) external nonReentrant returns (bool){
+    function returnTokens(uint256 _stakeID)
+        external
+        nonReentrant
+        returns (bool)
+    {
         Stake memory selectedStake = stake[msg.sender][_stakeID];
 
         //Check if the stake were already withdraw
         require(selectedStake.returned == false, "Stake were already returned");
 
-        uint deposited_amount = selectedStake.deposit_amount;
+        uint256 deposited_amount = selectedStake.deposit_amount;
         //Get the net reward
-        uint penalty = calculatePenalty(deposited_amount);
+        uint256 penalty = calculatePenalty(deposited_amount);
 
         //Sum the net reward to the total reward to withdraw
-        uint total_amount = deposited_amount.sub(penalty);
-
+        uint256 total_amount = deposited_amount.sub(penalty);
 
         //Update the supplied amount considering also the penalty
-        uint supplied = deposited_amount.sub(total_amount);
+        uint256 supplied = deposited_amount.sub(total_amount);
         require(updateSuppliedToken(supplied), "Limit reached");
 
         //Add the penalty to the pot
         pot = pot.add(penalty);
 
-
         //Only set the withdraw flag in order to disable further withdraw
         stake[msg.sender][_stakeID].returned = true;
 
-        if(ERC20Interface.transfer(msg.sender, total_amount)){
+        if (ERC20Interface.transfer(msg.sender, total_amount)) {
             emit StakeWithdraw(_stakeID, total_amount);
-        }else{
+        } else {
             revert("Unable to transfer funds");
         }
-
 
         return true;
     }
 
-
-    function withdrawReward(uint _stakeID) external nonReentrant returns (bool){
+    function withdrawReward(uint256 _stakeID)
+        external
+        nonReentrant
+        returns (bool)
+    {
         Stake memory _stake = stake[msg.sender][_stakeID];
 
-        uint rewardToWithdraw = calculateRewardToWithdraw(_stakeID);
+        uint256 rewardToWithdraw = calculateRewardToWithdraw(_stakeID);
 
-        require(updateSuppliedToken(rewardToWithdraw), "Supplied limit reached");
+        require(
+            updateSuppliedToken(rewardToWithdraw),
+            "Supplied limit reached"
+        );
 
-        if(rewardToWithdraw > pot){
+        if (rewardToWithdraw > pot) {
             revert("Pot exhausted");
         }
 
         pot = pot.sub(rewardToWithdraw);
 
-        stake[msg.sender][_stakeID].alreadyWithdrawedAmount = _stake.alreadyWithdrawedAmount.add(rewardToWithdraw);
+        stake[msg.sender][_stakeID].alreadyWithdrawedAmount = _stake
+            .alreadyWithdrawedAmount
+            .add(rewardToWithdraw);
 
-        if(ERC20Interface.transfer(msg.sender, rewardToWithdraw)){
+        if (ERC20Interface.transfer(msg.sender, rewardToWithdraw)) {
             emit rewardWithdrawed(msg.sender);
-        }else{
+        } else {
             revert("Unable to transfer funds");
         }
 
         return true;
     }
 
+    function withdrawReferralReward() external nonReentrant returns (bool) {
+        uint256 referralCount = referral[msg.sender].length;
 
-    function withdrawReferralReward() external nonReentrant returns (bool){
-        uint referralCount = referral[msg.sender].length;
+        uint256 totalAmount = 0;
 
-        uint totalAmount = 0;
-
-        for(uint i = 0; i<referralCount; i++){
+        for (uint256 i = 0; i < referralCount; i++) {
             address currentAccount = referral[msg.sender][i];
-            uint currentReward = calculateRewardReferral(currentAccount);
+            uint256 currentReward = calculateRewardReferral(currentAccount);
 
             totalAmount = totalAmount.add(currentReward);
 
             //Update the alreadyWithdrawed status
-            account_referral[currentAccount].referralAlreadyWithdrawed = account_referral[currentAccount].referralAlreadyWithdrawed.add(currentReward);
+            account_referral[currentAccount]
+                .referralAlreadyWithdrawed = account_referral[currentAccount]
+                .referralAlreadyWithdrawed
+                .add(currentReward);
         }
 
         require(updateSuppliedToken(totalAmount), "Machine limit reached");
 
         //require(withdrawFromPot(totalAmount), "Pot exhausted");
 
-        if(totalAmount > pot){
+        if (totalAmount > pot) {
             revert("Pot exhausted");
         }
 
         pot = pot.sub(totalAmount);
 
-
-        if(ERC20Interface.transfer(msg.sender, totalAmount)){
+        if (ERC20Interface.transfer(msg.sender, totalAmount)) {
             emit referralRewardSent(msg.sender, totalAmount);
-        }else{
+        } else {
             revert("Unable to transfer funds");
         }
-
 
         return true;
     }
 
     /**
-    *   @dev Check if the provided amount is available in the pot
-    *   If yes, it will update the pot value and return true
-    *   Otherwise it will emit a PotExhausted event and return false
+     *   @dev Check if the provided amount is available in the pot
+     *   If yes, it will update the pot value and return true
+     *   Otherwise it will emit a PotExhausted event and return false
      */
-    function withdrawFromPot(uint _amount) public nonReentrant returns (bool){
-
-        if(_amount > pot){
+    function withdrawFromPot(uint256 _amount)
+        public
+        nonReentrant
+        returns (bool)
+    {
+        if (_amount > pot) {
             emit PotExhausted();
             return false;
         }
@@ -404,36 +401,38 @@ contract Staking is Ownable, ReentrancyGuard {
 
         pot = pot.sub(_amount);
         return true;
-
     }
-
 
     //--------------------------------------------------------------------
     //-------------------------- VIEWS -----------------------------------
     //--------------------------------------------------------------------
 
     /**
-    * @dev Return the amount of token in the provided caller's stake
-    * @param _stakeID The ID of the stake of the caller
+     * @dev Return the amount of token in the provided caller's stake
+     * @param _stakeID The ID of the stake of the caller
      */
-    function getCurrentStakeAmount(uint _stakeID) external view returns (uint256)  {
+    function getCurrentStakeAmount(uint256 _stakeID)
+        external
+        view
+        returns (uint256)
+    {
         require(tokenAddress != address(0), "No contract set");
 
         return stake[msg.sender][_stakeID].deposit_amount;
     }
 
     /**
-    * @dev Return sum of all the caller's stake amount
-    * @return Amount of stake
+     * @dev Return sum of all the caller's stake amount
+     * @return Amount of stake
      */
     function getTotalStakeAmount() external view returns (uint256) {
         require(tokenAddress != address(0), "No contract set");
 
         Stake[] memory currentStake = stake[msg.sender];
-        uint nummberOfStake = stake[msg.sender].length;
-        uint totalStake = 0;
-        uint tmp;
-        for (uint i = 0; i<nummberOfStake; i++){
+        uint256 nummberOfStake = stake[msg.sender].length;
+        uint256 totalStake = 0;
+        uint256 tmp;
+        for (uint256 i = 0; i < nummberOfStake; i++) {
             tmp = currentStake[i].deposit_amount;
             totalStake = totalStake.add(tmp);
         }
@@ -442,24 +441,34 @@ contract Staking is Ownable, ReentrancyGuard {
     }
 
     /**
-    *   @dev Return all the available stake info
-    *   @notice Return stake info
-    *   @param _stakeID ID of the stake which info is returned
-    *
-    *   @return 1) Amount Deposited
-    *   @return 2) Bool value that tells if the stake was withdrawed
-    *   @return 3) Stake creation time (Unix timestamp)
-    *   @return 4) The eventual referAccountess != address(0), "No contract set");
-    *   @return 5) The current amount
-    *   @return 6) The penalty of withdraw
-    */
-    function getStakeInfo(uint _stakeID) external view returns(uint, bool, uint, address, uint, uint){
-
+     *   @dev Return all the available stake info
+     *   @notice Return stake info
+     *   @param _stakeID ID of the stake which info is returned
+     *
+     *   @return 1) Amount Deposited
+     *   @return 2) Bool value that tells if the stake was withdrawed
+     *   @return 3) Stake creation time (Unix timestamp)
+     *   @return 4) The eventual referAccountess != address(0), "No contract set");
+     *   @return 5) The current amount
+     *   @return 6) The penalty of withdraw
+     */
+    function getStakeInfo(uint256 _stakeID)
+        external
+        view
+        returns (
+            uint256,
+            bool,
+            uint256,
+            address,
+            uint256,
+            uint256
+        )
+    {
         Stake memory selectedStake = stake[msg.sender][_stakeID];
 
-        uint amountToWithdraw = calculateRewardToWithdraw(_stakeID);
+        uint256 amountToWithdraw = calculateRewardToWithdraw(_stakeID);
 
-        uint penalty = calculatePenalty(selectedStake.deposit_amount);
+        uint256 penalty = calculatePenalty(selectedStake.deposit_amount);
 
         address myReferral = getMyReferral();
 
@@ -473,61 +482,63 @@ contract Staking is Ownable, ReentrancyGuard {
         );
     }
 
-
     /**
-    *  @dev Get the current pot value
-    *  @return The amount of token in the current pot
+     *  @dev Get the current pot value
+     *  @return The amount of token in the current pot
      */
-    function getCurrentPot() external view returns (uint){
+    function getCurrentPot() external view returns (uint256) {
         return pot;
     }
 
     /**
-    * @dev Get the number of active stake of the caller
-    * @return Number of active stake
+     * @dev Get the number of active stake of the caller
+     * @return Number of active stake
      */
-    function getStakeCount() external view returns (uint){
+    function getStakeCount() external view returns (uint256) {
         return stake[msg.sender].length;
     }
 
+    function getActiveStakeCount() external view returns (uint256) {
+        uint256 stakeCount = stake[msg.sender].length;
 
-    function getActiveStakeCount() external view returns(uint){
-        uint stakeCount = stake[msg.sender].length;
+        uint256 count = 0;
 
-        uint count = 0;
-
-        for(uint i = 0; i<stakeCount; i++){
-            if(!stake[msg.sender][i].returned){
+        for (uint256 i = 0; i < stakeCount; i++) {
+            if (!stake[msg.sender][i].returned) {
                 count = count + 1;
             }
         }
         return count;
     }
 
-
-    function getReferralCount() external view returns (uint) {
+    function getReferralCount() external view returns (uint256) {
         return referral[msg.sender].length;
     }
 
-    function getAccountReferral() external view returns (address[] memory){
+    function getAccountReferral() external view returns (address[] memory) {
         referral[msg.sender];
     }
 
-    function getAlreadyWithdrawedAmount(uint _stakeID) external view returns (uint){
+    function getAlreadyWithdrawedAmount(uint256 _stakeID)
+        external
+        view
+        returns (uint256)
+    {
         return stake[msg.sender][_stakeID].alreadyWithdrawedAmount;
     }
-
 
     //--------------------------------------------------------------------
     //-------------------------- REFERRALS -----------------------------------
     //--------------------------------------------------------------------
 
-
-    function hasReferral() public view returns (bool){
-
+    function hasReferral() public view returns (bool) {
         Account memory myAccount = account_referral[msg.sender];
 
-        if(myAccount.referral == address(0) || myAccount.referral == address(0x0000000000000000000000000000000000000001)){
+        if (
+            myAccount.referral == address(0) ||
+            myAccount.referral ==
+            address(0x0000000000000000000000000000000000000001)
+        ) {
             //If I have no referral...
             assert(myAccount.referralAlreadyWithdrawed == 0);
             return false;
@@ -536,23 +547,21 @@ contract Staking is Ownable, ReentrancyGuard {
         return true;
     }
 
-
-    function getMyReferral() public view returns (address){
+    function getMyReferral() public view returns (address) {
         Account memory myAccount = account_referral[msg.sender];
 
         return myAccount.referral;
     }
 
-
     function setReferral(address referer) internal {
         require(referer != address(0), "Invalid address");
         require(!hasReferral(), "Referral already setted");
 
-        if(referer == address(0x0000000000000000000000000000000000000001)){
-            return;   //This means no referer
+        if (referer == address(0x0000000000000000000000000000000000000001)) {
+            return; //This means no referer
         }
 
-        if(referer == msg.sender){
+        if (referer == msg.sender) {
             revert("Referral is the same as the sender, forbidden");
         }
 
@@ -565,68 +574,76 @@ contract Staking is Ownable, ReentrancyGuard {
 
         account_referral[msg.sender] = account;
 
-        activeAccounts.push(referer);    //Add to the list of active account for pot calculation
+        activeAccounts.push(referer); //Add to the list of active account for pot calculation
     }
 
-
-    function getCurrentReferrals() external view returns (address[] memory){
+    function getCurrentReferrals() external view returns (address[] memory) {
         return referral[msg.sender];
     }
 
-
     /**
-    *   @dev Calculate the current referral reward of the specified customer
-    *   @return The amount of referral reward related to the given customer
+     *   @dev Calculate the current referral reward of the specified customer
+     *   @return The amount of referral reward related to the given customer
      */
-    function calculateRewardReferral(address customer) public view returns (uint){
-
-        uint lowestStake;
-        uint lowStakeID;
+    function calculateRewardReferral(address customer)
+        public
+        view
+        returns (uint256)
+    {
+        uint256 lowestStake;
+        uint256 lowStakeID;
         (lowestStake, lowStakeID) = getLowestStake(customer);
 
-        if(lowestStake == 0 && lowStakeID == 0){
+        if (lowestStake == 0 && lowStakeID == 0) {
             return 0;
         }
 
-        uint periods = calculateAccountStakePeriods(customer, lowStakeID);
+        uint256 periods = calculateAccountStakePeriods(customer, lowStakeID);
 
-        uint currentReward = lowestStake.mul(_REFERALL_REWARD).mul(periods).div(100000);
+        uint256 currentReward = lowestStake
+            .mul(_REFERALL_REWARD)
+            .mul(periods)
+            .div(100000);
 
-        uint alreadyWithdrawed = account_referral[customer].referralAlreadyWithdrawed;
+        uint256 alreadyWithdrawed = account_referral[customer]
+            .referralAlreadyWithdrawed;
 
-
-        if(currentReward <= alreadyWithdrawed){
-            return 0;   //Already withdrawed all the in the past
+        if (currentReward <= alreadyWithdrawed) {
+            return 0; //Already withdrawed all the in the past
         }
 
-
-        uint availableReward = currentReward.sub(alreadyWithdrawed);
+        uint256 availableReward = currentReward.sub(alreadyWithdrawed);
 
         return availableReward;
     }
 
+    function calculateTotalRewardReferral() external view returns (uint256) {
+        uint256 referralCount = referral[msg.sender].length;
 
-    function calculateTotalRewardReferral() external view returns (uint){
+        uint256 totalAmount = 0;
 
-        uint referralCount = referral[msg.sender].length;
-
-        uint totalAmount = 0;
-
-        for(uint i = 0; i<referralCount; i++){
-            totalAmount = totalAmount.add(calculateRewardReferral(referral[msg.sender][i]));
+        for (uint256 i = 0; i < referralCount; i++) {
+            totalAmount = totalAmount.add(
+                calculateRewardReferral(referral[msg.sender][i])
+            );
         }
 
         return totalAmount;
     }
 
-    function calculateTotalRewardReferral(address _account) public view returns (uint){
+    function calculateTotalRewardReferral(address _account)
+        public
+        view
+        returns (uint256)
+    {
+        uint256 referralCount = referral[_account].length;
 
-        uint referralCount = referral[_account].length;
+        uint256 totalAmount = 0;
 
-        uint totalAmount = 0;
-
-        for(uint i = 0; i<referralCount; i++){
-            totalAmount = totalAmount.add(calculateRewardReferral(referral[_account][i]));
+        for (uint256 i = 0; i < referralCount; i++) {
+            totalAmount = totalAmount.add(
+                calculateRewardReferral(referral[_account][i])
+            );
         }
 
         return totalAmount;
@@ -638,15 +655,19 @@ contract Staking is Ownable, ReentrancyGuard {
      * @return uint The stake amount
      * @return uint The stake ID
      */
-    function getLowestStake(address customer) public view returns (uint, uint){
-        uint stakeNumber = stake[customer].length;
-        uint min = _MAX_STAKE_AMOUNT;
-        uint minID = 0;
+    function getLowestStake(address customer)
+        public
+        view
+        returns (uint256, uint256)
+    {
+        uint256 stakeNumber = stake[customer].length;
+        uint256 min = _MAX_STAKE_AMOUNT;
+        uint256 minID = 0;
         bool foundFlag = false;
 
-        for(uint i = 0; i<stakeNumber; i++){
-            if(stake[customer][i].deposit_amount <= min){
-                if(stake[customer][i].returned){
+        for (uint256 i = 0; i < stakeNumber; i++) {
+            if (stake[customer][i].deposit_amount <= min) {
+                if (stake[customer][i].returned) {
                     continue;
                 }
                 min = stake[customer][i].deposit_amount;
@@ -655,16 +676,12 @@ contract Staking is Ownable, ReentrancyGuard {
             }
         }
 
-
-        if(!foundFlag){
+        if (!foundFlag) {
             return (0, 0);
-        }else{
+        } else {
             return (min, minID);
         }
-
     }
-
-
 
     //--------------------------------------------------------------------
     //-------------------------- INTERNAL -----------------------------------
@@ -675,55 +692,72 @@ contract Staking is Ownable, ReentrancyGuard {
      * param uint _stakeID The stake where the reward should be calculated
      * @return The reward value
      */
-    function calculateRewardToWithdraw(uint _stakeID) public view returns (uint){
+    function calculateRewardToWithdraw(uint256 _stakeID)
+        public
+        view
+        returns (uint256)
+    {
         Stake memory _stake = stake[msg.sender][_stakeID];
 
-        uint amount_staked = _stake.deposit_amount;
-        uint already_withdrawed = _stake.alreadyWithdrawedAmount;
+        uint256 amount_staked = _stake.deposit_amount;
+        uint256 already_withdrawed = _stake.alreadyWithdrawedAmount;
 
-        uint periods = calculatePeriods(_stakeID);  //Periods for interest calculation
+        uint256 periods = calculatePeriods(_stakeID); //Periods for interest calculation
 
-        uint interest = amount_staked.mul(_INTEREST_VALUE);
+        uint256 interest = amount_staked.mul(_INTEREST_VALUE);
 
-        uint total_interest = interest.mul(periods).div(100000);
+        uint256 total_interest = interest.mul(periods).div(100000);
 
-        uint reward = total_interest.sub(already_withdrawed); //Subtract the already withdrawed amount
+        uint256 reward = total_interest.sub(already_withdrawed); //Subtract the already withdrawed amount
 
         return reward;
     }
 
-    function calculateRewardToWithdraw(address _account, uint _stakeID) internal view onlyOwner returns (uint){
+    function calculateRewardToWithdraw(address _account, uint256 _stakeID)
+        internal
+        view
+        onlyOwner
+        returns (uint256)
+    {
         Stake memory _stake = stake[_account][_stakeID];
 
-        uint amount_staked = _stake.deposit_amount;
-        uint already_withdrawed = _stake.alreadyWithdrawedAmount;
+        uint256 amount_staked = _stake.deposit_amount;
+        uint256 already_withdrawed = _stake.alreadyWithdrawedAmount;
 
-        uint periods = calculateAccountStakePeriods(_account, _stakeID);  //Periods for interest calculation
+        uint256 periods = calculateAccountStakePeriods(_account, _stakeID); //Periods for interest calculation
 
-        uint interest = amount_staked.mul(_INTEREST_VALUE);
+        uint256 interest = amount_staked.mul(_INTEREST_VALUE);
 
-        uint total_interest = interest.mul(periods).div(100000);
+        uint256 total_interest = interest.mul(periods).div(100000);
 
-        uint reward = total_interest.sub(already_withdrawed); //Subtract the already withdrawed amount
+        uint256 reward = total_interest.sub(already_withdrawed); //Subtract the already withdrawed amount
 
         return reward;
     }
 
-    function calculateTotalRewardToWithdraw(address _account) internal view onlyOwner returns (uint){
+    function calculateTotalRewardToWithdraw(address _account)
+        internal
+        view
+        onlyOwner
+        returns (uint256)
+    {
         Stake[] memory accountStakes = stake[_account];
 
-        uint stakeNumber = accountStakes.length;
-        uint amount = 0;
+        uint256 stakeNumber = accountStakes.length;
+        uint256 amount = 0;
 
-        for( uint i = 0; i<stakeNumber; i++){
+        for (uint256 i = 0; i < stakeNumber; i++) {
             amount = amount.add(calculateRewardToWithdraw(_account, i));
         }
 
         return amount;
     }
 
-    function calculateCompoundInterest(uint _stakeID) external view returns (uint256){
-
+    function calculateCompoundInterest(uint256 _stakeID)
+        external
+        view
+        returns (uint256)
+    {
         Stake memory _stake = stake[msg.sender][_stakeID];
 
         uint256 periods = calculatePeriods(_stakeID);
@@ -732,8 +766,7 @@ contract Staking is Ownable, ReentrancyGuard {
         uint256 excepted_amount = amount_staked;
 
         //Calculate reward
-        for(uint i = 0; i < periods; i++){
-
+        for (uint256 i = 0; i < periods; i++) {
             uint256 period_interest;
 
             period_interest = excepted_amount.mul(_INTEREST_VALUE).div(100);
@@ -746,78 +779,84 @@ contract Staking is Ownable, ReentrancyGuard {
         return excepted_amount;
     }
 
-    function calculatePeriods(uint _stakeID) public view returns (uint){
+    function calculatePeriods(uint256 _stakeID) public view returns (uint256) {
         Stake memory _stake = stake[msg.sender][_stakeID];
 
+        uint256 creation_time = _stake.stake_creation_time;
+        uint256 current_time = now;
 
-        uint creation_time = _stake.stake_creation_time;
-        uint current_time = now;
+        uint256 total_period = current_time.sub(creation_time);
 
-        uint total_period = current_time.sub(creation_time);
-
-        uint periods = total_period.div(_INTEREST_PERIOD);
+        uint256 periods = total_period.div(_INTEREST_PERIOD);
 
         return periods;
     }
 
-    function calculateAccountStakePeriods(address _account, uint _stakeID) public view returns (uint){
+    function calculateAccountStakePeriods(address _account, uint256 _stakeID)
+        public
+        view
+        returns (uint256)
+    {
         Stake memory _stake = stake[_account][_stakeID];
 
+        uint256 creation_time = _stake.stake_creation_time;
+        uint256 current_time = now;
 
-        uint creation_time = _stake.stake_creation_time;
-        uint current_time = now;
+        uint256 total_period = current_time.sub(creation_time);
 
-        uint total_period = current_time.sub(creation_time);
-
-        uint periods = total_period.div(_INTEREST_PERIOD);
+        uint256 periods = total_period.div(_INTEREST_PERIOD);
 
         return periods;
     }
 
-    function calculatePenalty(uint _amountStaked) private pure returns (uint){
-        uint tmp_penalty = _amountStaked.mul(_PENALTY_VALUE);   //Take the 10 percent
+    function calculatePenalty(uint256 _amountStaked)
+        private
+        pure
+        returns (uint256)
+    {
+        uint256 tmp_penalty = _amountStaked.mul(_PENALTY_VALUE); //Take the 10 percent
         return tmp_penalty.div(100);
     }
 
-    function updateSuppliedToken(uint _amount) internal returns (bool){
-        
-        if(_amount > amount_supplied){
+    function updateSuppliedToken(uint256 _amount) internal returns (bool) {
+        if (_amount > amount_supplied) {
             return false;
         }
-        
+
         amount_supplied = amount_supplied.sub(_amount);
         return true;
     }
 
-    function checkPotBalance(uint _amount) internal view returns (bool){
-        if(pot >= _amount){
+    function checkPotBalance(uint256 _amount) internal view returns (bool) {
+        if (pot >= _amount) {
             return true;
         }
         return false;
     }
 
-
-
-    function getMachineBalance() internal view returns (uint){
+    function getMachineBalance() internal view returns (uint256) {
         return ERC20Interface.balanceOf(address(this));
     }
 
-    function getMachineState() external view returns (uint){
+    function getMachineState() external view returns (uint256) {
         return amount_supplied;
     }
 
-    function isSubscriptionEnded() public view returns (bool){
-        if(amount_supplied >= _MAX_TOKEN_SUPPLY_LIMIT - _MIDTERM_TOKEN_SUPPLY_LIMIT){
+    function isSubscriptionEnded() public view returns (bool) {
+        if (
+            amount_supplied >=
+            _MAX_TOKEN_SUPPLY_LIMIT - _MIDTERM_TOKEN_SUPPLY_LIMIT
+        ) {
             return false;
-        }else{
+        } else {
             return true;
         }
     }
 
-    function isMachineStopped() public view returns (bool){
-        if(amount_supplied > 0){
+    function isMachineStopped() public view returns (bool) {
+        if (amount_supplied > 0) {
             return true;
-        }else{
+        } else {
             return false;
         }
     }
@@ -826,8 +865,7 @@ contract Staking is Ownable, ReentrancyGuard {
     //------------------------ DEBUG -------------------------------
     //--------------------------------------------------------------
 
-    function getOwner() external view returns (address){
+    function getOwner() external view returns (address) {
         return owner();
     }
-
 }
